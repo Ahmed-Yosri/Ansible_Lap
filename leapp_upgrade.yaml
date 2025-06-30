@@ -1,0 +1,80 @@
+me: Oracle Linux 7.9 Leapp Upgrade
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Install oraclelinux-release-el7
+      yum:
+        name: oraclelinux-release-el7
+        state: present
+
+    - name: Enable leapp and latest repositories
+      command: yum-config-manager --enable ol7_leapp ol7_latest
+      register: repo_enable
+      changed_when: "'enabled' in repo_enable.stdout"
+
+    - name: Install yum-utils
+      yum:
+        name: yum-utils
+        state: present
+
+    - name: Install leapp-upgrade with enabled repos
+      yum:
+        name: leapp-upgrade
+        enablerepo: ol7_leapp,ol7_latest
+        state: present
+
+    - name: Update all packages
+      yum:
+        name: '*'
+        state: latest
+
+    - name: Reboot after update
+      reboot:
+        reboot_timeout: 600
+
+    - name: Run leapp preupgrade
+      command: leapp preupgrade --oraclelinux
+      register: leapp_preupgrade
+      ignore_errors: yes
+
+    - name: Show preupgrade output
+      debug:
+        var: leapp_preupgrade.stdout_lines
+
+    - name: Check OS version
+      command: cat /etc/os-release
+      register: os_version
+
+    - name: Show current OS version
+      debug:
+        var: os_version.stdout_lines
+
+    - name: Notify user about inhibitors
+      debug:
+        msg: |
+          Please manually check /var/log/leapp/leapp-report.txt and /var/log/leapp/answerfile.
+          Edit /var/log/leapp/answerfile to confirm answers to inhibitors if any exist.
+          Then re-run 'leapp preupgrade --oraclelinux' and continue to 'leapp upgrade --oraclelinux'.
+
+    - name: Pause to allow manual confirmation of answerfile
+      pause:
+        prompt: "Press ENTER once you have manually edited the answerfile and resolved inhibitors."
+
+    - name: Run leapp preupgrade again (post-fix)
+      command: leapp preupgrade --oraclelinux
+      register: leapp_preupgrade_final
+      ignore_errors: yes
+
+    - name: Show final preupgrade result
+      debug:
+        var: leapp_preupgrade_final.stdout_lines
+
+    - name: Run leapp upgrade
+      command: leapp upgrade --oraclelinux
+      when: leapp_preupgrade_final.rc == 0
+
+    - name: Final reboot to complete upgrade
+      reboot:
+        reboot_timeout: 1200
+
